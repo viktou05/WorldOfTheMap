@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mijn reisatlas</title>
+  <meta name="description" content="Waar ik geweest ben, waar ik heen vloog en waar ik nog naartoe wil.">
+  <meta name="theme-color" content="#e9edf0">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%2313213a'/%3E%3Cpath d='M3 12h26M3 20h26M16 1c-7 8-7 22 0 30M16 1c7 8 7 22 0 30' stroke='%23e9edf0' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <a class="brand" href="#landen">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="13.5" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M3 12h26M3 20h26M16 2.5c-6.5 7.5-6.5 19.5 0 27M16 2.5c6.5 7.5 6.5 19.5 0 27" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      </svg>
+      <span id="brand-title">Mijn reisatlas</span>
+    </a>
+    <nav class="tabs" aria-label="Kaarten">
+      <button type="button" data-tab="countries">Landen <em id="cnt-countries">0</em></button>
+      <button type="button" data-tab="flights">Vluchten <em id="cnt-flights">0</em></button>
+      <button type="button" data-tab="wish">Verlanglijst <em id="cnt-wish">0</em></button>
+    </nav>
+    <div class="actions">
+      <button type="button" class="btn" id="btn-export">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg>
+        <span class="btn-export-label">Exporteer</span>
+        <i class="badge" hidden></i>
+      </button>
+      <button type="button" class="icon-btn" id="btn-settings" aria-label="Instellingen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <!-- =============== 1. LANDEN =============== -->
+    <section class="view" data-tab="countries" hidden>
+      <div class="map-card" data-tab="countries">
+        <div class="map" id="map-countries"></div>
+        <div class="map-status">Wereldkaart laden…</div>
+        <div class="map-ui tl">
+          <div class="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="search-countries" type="search" placeholder="Zoek een land" autocomplete="off" aria-label="Zoek een land">
+          </div>
+        </div>
+        <div class="map-ui tr">
+          <div class="seg" role="group" aria-label="Weergave">
+            <button type="button" data-mode="flat" class="active" aria-pressed="true">Kaart</button>
+            <button type="button" data-mode="globe" aria-pressed="false">Wereldbol</button>
+          </div>
+        </div>
+        <div class="map-ui bl">
+          <div class="legend">
+            <span><i style="background:var(--land)"></i>Nooit</span>
+            <span><i style="background:var(--v1)"></i>1×</span>
+            <span><i style="background:var(--v2)"></i>2×</span>
+            <span><i style="background:var(--v3)"></i>3×</span>
+            <span><i style="background:var(--v4)"></i>4×</span>
+            <span><i style="background:var(--v5)"></i>5× of meer</span>
+            <span><i class="hatch"></i>Groot land, deels gezien</span>
+          </div>
+        </div>
+        <div class="map-ui br zoom">
+          <button type="button" data-zoom="in" aria-label="Inzoomen">+</button>
+          <button type="button" data-zoom="out" aria-label="Uitzoomen">−</button>
+          <button type="button" data-zoom="reset" aria-label="Terug naar de hele wereld">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/></svg>
+          </button>
+        </div>
+      </div>
+      <aside class="side" id="side-countries" aria-label="Statistieken landen"></aside>
+    </section>
+
+    <!-- =============== 2. VLUCHTEN =============== -->
+    <section class="view" data-tab="flights" hidden>
+      <div class="map-card night" data-tab="flights">
+        <div class="map" id="map-flights"></div>
+        <div class="map-status">Wereldkaart laden…</div>
+        <div class="map-ui tl"><div class="banner" id="flights-banner">Nog geen vluchten</div></div>
+        <div class="map-ui tr">
+          <div class="seg" role="group" aria-label="Weergave">
+            <button type="button" data-mode="flat" class="active" aria-pressed="true">Kaart</button>
+            <button type="button" data-mode="globe" aria-pressed="false">Wereldbol</button>
+          </div>
+        </div>
+        <div class="map-ui br zoom">
+          <button type="button" data-zoom="in" aria-label="Inzoomen">+</button>
+          <button type="button" data-zoom="out" aria-label="Uitzoomen">−</button>
+          <button type="button" data-zoom="reset" aria-label="Terug naar de hele wereld">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/></svg>
+          </button>
+        </div>
+      </div>
+      <aside class="side" aria-label="Vluchten">
+        <div id="flight-stats"></div>
+        <form id="flight-form" class="form" autocomplete="off">
+          <div class="form-title">Vlucht toevoegen</div>
+          <div class="ap-fields">
+            <div class="ac">
+              <label for="f-from">Van</label>
+              <input id="f-from" class="input" placeholder="Stad of code, bv. Brussel of BRU">
+            </div>
+            <button type="button" class="swap" id="f-swap" aria-label="Wissel vertrek en bestemming">⇅</button>
+            <div class="ac">
+              <label for="f-to">Naar</label>
+              <input id="f-to" class="input" placeholder="bv. New York of JFK">
+            </div>
+          </div>
+          <div class="row2">
+            <div><label for="f-date">Datum</label><input id="f-date" class="input" type="date"></div>
+            <div><label for="f-airline">Maatschappij</label><input id="f-airline" class="input" placeholder="optioneel"></div>
+          </div>
+          <label class="check"><input type="checkbox" id="f-return">Ook de terugvlucht toevoegen</label>
+          <div id="f-return-row" hidden><label for="f-rdate">Datum terugvlucht</label><input id="f-rdate" class="input" type="date"></div>
+          <div class="preview" id="f-preview"></div>
+          <button class="btn primary block" type="submit">Vlucht toevoegen</button>
+        </form>
+        <div id="flight-extra"></div>
+        <div id="flight-list"></div>
+      </aside>
+    </section>
+
+    <!-- =============== 3. VERLANGLIJST =============== -->
+    <section class="view" data-tab="wish" hidden>
+      <div class="map-card" data-tab="wish">
+        <div class="map" id="map-wish"></div>
+        <div class="map-status">Wereldkaart laden…</div>
+        <div class="map-ui tl">
+          <div class="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="search-wish" type="search" placeholder="Voeg een land toe" autocomplete="off" aria-label="Zoek een land om toe te voegen">
+          </div>
+        </div>
+        <div class="map-ui tr">
+          <div class="seg" role="group" aria-label="Weergave">
+            <button type="button" data-mode="flat" class="active" aria-pressed="true">Kaart</button>
+            <button type="button" data-mode="globe" aria-pressed="false">Wereldbol</button>
+          </div>
+        </div>
+        <div class="map-ui bl">
+          <div class="legend">
+            <span><i style="background:var(--stamp)"></i>Wil ik naartoe</span>
+            <span><i style="background:var(--seen)"></i>Al geweest</span>
+            <span><i style="background:var(--land)"></i>Nog niet</span>
+          </div>
+        </div>
+        <div class="map-ui br zoom">
+          <button type="button" data-zoom="in" aria-label="Inzoomen">+</button>
+          <button type="button" data-zoom="out" aria-label="Uitzoomen">−</button>
+          <button type="button" data-zoom="reset" aria-label="Terug naar de hele wereld">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/></svg>
+          </button>
+        </div>
+      </div>
+      <aside class="side" id="side-wish" aria-label="Verlanglijst"></aside>
+    </section>
+  </main>
+
+  <!-- Paneel dat opent als je op een land klikt -->
+  <aside id="sheet" class="sheet" aria-label="Details van het land"></aside>
+
+  <div id="tooltip" class="tooltip" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- Instellingen -->
+  <dialog id="settings" aria-label="Instellingen">
+    <div class="sheet-head">
+      <h2>Instellingen</h2>
+      <button type="button" class="icon-btn" onclick="this.closest('dialog').close()" aria-label="Sluiten">✕</button>
+    </div>
+    <div class="dialog-body">
+      <h3>Titel</h3>
+      <input class="input" id="set-title" placeholder="Mijn reisatlas" aria-label="Titel van je atlas">
+
+      <h3>Je gegevens bewaren</h3>
+      <p class="hint">Alles wat je invult, wordt meteen bewaard in deze browser. Wil je het op elk toestel zien? Klik op Exporteer en upload het bestand reizen.json op GitHub, in plaats van het oude. Na een halve minuut staat je site bijgewerkt online.</p>
+      <div class="btn-row">
+        <button type="button" class="btn primary" id="set-export">Exporteer reizen.json</button>
+        <label class="btn file-btn">Importeer een bestand<input type="file" id="set-import" accept=".json,application/json"></label>
+      </div>
+      <button type="button" class="btn" id="set-reload">Laad de versie van de website</button>
+
+      <h3>Opnieuw beginnen</h3>
+      <p class="hint">Wist alles in deze browser. Wat op GitHub staat, blijft bestaan.</p>
+      <button type="button" class="btn danger" id="set-reset">Alles wissen in deze browser</button>
+    </div>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
