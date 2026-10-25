@@ -9,6 +9,14 @@ Een persoonlijke website met drie wereldkaarten:
 ### Grote landen
 De VS, Canada, Australië, Brazilië, China, India en Rusland kleur je per regio in (staten, provincies of federale districten). Zolang je weinig regio's aanduidt, is het land gearceerd; pas als je het grootste deel zag, kleurt het vol. De VS wordt zelfs per staat ingekleurd op de kaart. In "% van het landoppervlak" telt alleen het stuk dat je echt zag.
 
+Liever het hele land ingekleurd? Zet **Alleen bezochte regio's inkleuren** uit (in de zijbalk onder "Grote landen", of via het instellingen-icoon). Dan kleuren grote landen volledig in zodra je er geweest bent, en tellen ze volledig mee in "% van het landoppervlak". Die keuze wordt mee bewaard in `reizen.json`.
+
+### Statistieken
+De knop **Statistieken** toont leuke weetjes: hoe vaak je rond de aarde en naar de maan vloog, hoe lang je er te voet of met de fiets over zou doen, je vliegrecords (langste en kortste vlucht, favoriete route, maatschappij, maand), hoe vaak je de evenaar en de datumgrens overstak, de uitersten op je kaart, je landen-alfabet en een ruwe CO₂-schatting.
+
+### Delen
+De knop **Delen** maakt een overzicht dat iedereen snapt: een afbeelding met je kaart, cijfers en de lijst met landen (downloaden, kopiëren of op je gsm meteen delen via WhatsApp en co), en een tekstversie met vlaggetjes om te plakken in een chat of mail.
+
 ## Online zetten met GitHub en Vercel
 
 1. Maak een gratis account op github.com.

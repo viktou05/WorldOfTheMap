@@ -101,6 +101,7 @@
       wishlist: [],    // [landcodes]
       flights: [],     // [{id, date, from, to, airline, km}]
       airports: {},    // gebruikte luchthavens (zodat de kaart altijd werkt)
+      settings: {},    // bv. { bigCountriesByRegion: false }
     };
   }
   function normalize(d) {
@@ -110,12 +111,23 @@
     return {
       ...e, ...d,
       countries: obj(d.countries), regions: obj(d.regions), notes: obj(d.notes), airports: obj(d.airports),
+      settings: obj(d.settings),
       wishlist: Array.isArray(d.wishlist) ? d.wishlist : [],
       flights: Array.isArray(d.flights) ? d.flights : [],
     };
   }
 
   let data = emptyData();
+
+  // Grote landen per regio inkleuren (standaard aan). Uit = het hele land kleurt in.
+  // De keuze zit in reizen.json, dus wie je site bekijkt, ziet hetzelfde.
+  const byRegion = () => !(data.settings && data.settings.bigCountriesByRegion === false);
+  function setByRegion(on) {
+    if (on === byRegion()) return;
+    data.settings = { ...data.settings, bigCountriesByRegion: !!on };
+    commit();
+    toast(on ? 'Grote landen kleuren weer alleen in waar je was.' : 'Grote landen kleuren nu volledig in.');
+  }
 
   const S = {
     tab: 'countries',
@@ -249,14 +261,7 @@
   function exportData() {
     pruneAirports();
     if (!data.updatedAt) data.updatedAt = new Date().toISOString();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = DATA_FILE;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), DATA_FILE);
     persist(false);
     toast('reizen.json is gedownload. Upload het op GitHub om je site bij te werken.');
   }
@@ -296,7 +301,7 @@
   // Welk deel van een land telt mee voor "% van het landoppervlak"
   function areaFactor(key) {
     const big = BIG_COUNTRIES[key];
-    if (!big) return 1;
+    if (!big || !byRegion()) return 1;
     const sel = data.regions[key] || [];
     if (key === '840' && S.usArea) {
       let tot = 0, got = 0;
@@ -481,7 +486,10 @@
         .style('fill', (d) => cfg.fill(d, this) || null)
         .classed('selected', (d) => d.key === sel);
       if (sel) this.countries.filter('.selected').raise();
-      if (this.regions) this.regions.style('fill', (d) => cfg.regionFill(d) || null);
+      if (this.regions) {
+        this.gRegions.style('display', cfg.showRegions && !cfg.showRegions() ? 'none' : null);
+        this.regions.style('fill', (d) => cfg.regionFill(d) || null);
+      }
       if (cfg.drawOverlay) cfg.drawOverlay(this);
     }
 
@@ -573,7 +581,7 @@
     const v = data.countries[key] || 0;
     if (!v) return null;
     const lvl = Math.min(v, 5);
-    if (BIG_COUNTRIES[key]) {
+    if (BIG_COUNTRIES[key] && byRegion()) {
       const c = coverage(key);
       if (c < 1 / 3) return `url(#${prefix}-h${lvl}-l)`;
       if (c < 2 / 3) return `url(#${prefix}-h${lvl}-d)`;
@@ -603,6 +611,7 @@
       fill: (d, v) => visitFill(d.key, v.id),
       tip: (d) => countryTip(d.key),
       onClick: (d) => openCountry(d.key),
+      showRegions: () => byRegion(),
       regionFill: (r) => {
         const n = data.countries['840'] || 0;
         return n && (data.regions['840'] || []).includes(r.rid) ? VISIT_COLORS[Math.min(n, 5)] : null;
@@ -696,11 +705,10 @@
           </div>
         </section>`;
     if (big) {
-      const extra = key === '840' ? ' Je kunt ook rechtstreeks op de kaart op een staat klikken.' : '';
       h += `
         <section class="field">
           <div class="field-row"><div class="field-label">Welke ${esc(big.unit)} heb je gezien?</div><span class="pill" id="sh-rcount"></span></div>
-          <p class="hint">Groot land: hoe meer ${esc(big.unit)} je aanduidt, hoe voller het op de kaart kleurt.${extra}</p>
+          <p class="hint" id="sh-bighint"></p>
           ${big.regions.length > 14 ? `<input class="input" id="sh-rfilter" type="search" placeholder="Zoek in de ${esc(big.unit)}" autocomplete="off">` : ''}
           <div class="chips" id="sh-chips">${big.regions.map(([id, n]) => `<button type="button" class="chip" data-rid="${esc(id)}">${esc(n)}</button>`).join('')}</div>
         </section>`;
@@ -736,6 +744,9 @@
         c.setAttribute('aria-pressed', on ? 'true' : 'false');
       });
       $('#sh-rcount').textContent = `${set.size} / ${big.regions.length}`;
+      $('#sh-bighint').textContent = byRegion()
+        ? `Groot land: hoe meer ${big.unit} je aanduidt, hoe voller het op de kaart kleurt.${key === '840' ? ' Je kunt ook rechtstreeks op de kaart op een staat klikken.' : ''}`
+        : `Het hele land kleurt in, want ‘alleen bezochte regio’s inkleuren’ staat uit. Je kunt hier toch bijhouden welke ${big.unit} je zag.`;
     }
     $('#sh-wish').checked = data.wishlist.includes(key);
   }
@@ -805,11 +816,13 @@
           <div class="cont-bottom">${stars(rr.stars)}<span>${rr.label}</span><span class="pct">${nf.format(Math.round(pc))}%</span></div>
         </div>`;
     }
-    h += '</div><h3 class="side-h">Grote landen</h3>';
+    h += `</div><h3 class="side-h">Grote landen</h3>
+      <label class="switch side-switch"><input type="checkbox" data-setting="byRegion"${byRegion() ? ' checked' : ''}><span class="track"></span><span>Alleen bezochte regio’s inkleuren</span></label>
+      <p class="hint">${byRegion()
+        ? 'De VS, Canada, Australië, Brazilië, China, India en Rusland kleur je per regio in. Zo kleurt één weekend New York niet de hele VS. Zolang je weinig regio’s aanduidt, is het land gearceerd.'
+        : 'Staat uit: de VS, Canada, Australië, Brazilië, China, India en Rusland kleuren volledig in zodra je er geweest bent, net als elk ander land.'}</p>`;
     const bigs = Object.keys(BIG_COUNTRIES).filter((k) => data.countries[k] > 0);
-    if (!bigs.length) {
-      h += '<p class="hint">De VS, Canada, Australië, Brazilië, China, India en Rusland kleur je per regio in. Zo kleurt één weekend New York niet de hele VS. Zolang je weinig regio’s aanduidt, is het land gearceerd.</p>';
-    } else {
+    if (bigs.length) {
       h += bigs.map((k) => {
         const b = BIG_COUNTRIES[k], n = (data.regions[k] || []).length, p = (n / b.regions.length) * 100;
         return `<button type="button" class="big-row" data-open="${esc(k)}"><span class="big-name">${esc(nameOf(k))}</span><span class="big-num">${n} van ${b.regions.length} ${esc(b.unit)}</span><span class="bar"><span style="width:${p}%"></span></span></button>`;
@@ -925,7 +938,9 @@
     const title = data.title || 'Mijn reisatlas';
     $('#brand-title').textContent = title;
     document.title = title;
+    $('#legend-hatch').hidden = !byRegion();
     updateSheet();
+    if ($('#stats').open) renderStats();
   }
 
   /* ------------------------------------------------------------------
@@ -1233,7 +1248,13 @@
     $$('.tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
     window.addEventListener('hashchange', () => showTab(HASH_TAB[location.hash] || 'countries'));
     $('#btn-export').addEventListener('click', exportData);
-    $('#btn-settings').addEventListener('click', () => { $('#set-title').value = data.title || ''; $('#settings').showModal(); });
+    $('#btn-settings').addEventListener('click', () => {
+      $('#set-title').value = data.title || '';
+      $('#set-byregion').checked = byRegion();
+      $('#settings').showModal();
+    });
+    $('#btn-stats').addEventListener('click', openStats);
+    $('#btn-share').addEventListener('click', openShare);
 
     // Kaartknoppen: in-/uitzoomen, kaart of wereldbol
     $$('.map-card').forEach((card) => {
@@ -1284,7 +1305,7 @@
       }
     });
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && S.selectedKey && !$('#settings').open) closeSheet();
+      if (e.key === 'Escape' && S.selectedKey && !$('dialog[open]')) closeSheet();
     });
 
     // Zoeken
@@ -1307,6 +1328,9 @@
     $('#side-countries').addEventListener('click', (e) => {
       const b = e.target.closest('[data-open]');
       if (b) { openCountry(b.dataset.open); focusKey('countries', b.dataset.open); }
+    });
+    $('#side-countries').addEventListener('change', (e) => {
+      if (e.target.dataset.setting === 'byRegion') setByRegion(e.target.checked);
     });
     $('#side-wish').addEventListener('click', (e) => {
       const x = e.target.closest('[data-unwish]');
@@ -1339,6 +1363,7 @@
       data.title = $('#set-title').value.trim() || 'Mijn reisatlas';
       commit();
     }, 350));
+    $('#set-byregion').addEventListener('change', (e) => setByRegion(e.target.checked));
     $('#set-export').addEventListener('click', exportData);
     $('#set-import').addEventListener('change', (e) => {
       const file = e.target.files[0];
@@ -1354,11 +1379,694 @@
       dlg.close();
       toast('Alles is gewist in deze browser.');
     });
-    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+    // Klik naast een venster sluit het
+    for (const d of $$('dialog')) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+
+    // Statistieken en delen
+    $('#stats').addEventListener('click', (e) => {
+      if (e.target.closest('[data-open-share]')) { $('#stats').close(); openShare(); }
+    });
+    bindShare();
   }
 
   /* ------------------------------------------------------------------
-     15. Opstarten
+     15. Leuke statistieken
+     ------------------------------------------------------------------ */
+  const EARTH_KM = 40075;          // omtrek van de aarde langs de evenaar
+  const MOON_KM = 384400;          // gemiddelde afstand tot de maan
+  const SUN_KM = 149600000;        // gemiddelde afstand tot de zon
+  const LIGHT_KMS = 299792.458;    // lichtsnelheid, km per seconde
+  const ISS_KMH = 27600;           // snelheid van het ruimtestation ISS
+  const KM2_PER_SR = 6371 * 6371;  // d3.geoArea (steradialen) naar km²
+  const BELGIUM_KM2 = 30689;
+  const CO2_KG_PER_KM = 0.15;      // ruwe schatting per passagier in economy, inclusief effecten op grote hoogte
+  const TREE_KG_PER_YEAR = 22;     // wat een volwassen boom ongeveer per jaar opneemt
+  const MONTHS = ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
+  const nf2s = new Intl.NumberFormat('nl-BE', { maximumSignificantDigits: 2 });
+
+  function pickBy(arr, fn, dir) {
+    let best, bv;
+    for (const x of arr) { const v = fn(x); if (best === undefined || (dir > 0 ? v > bv : v < bv)) { best = x; bv = v; } }
+    return best;
+  }
+  const maxBy = (a, f) => pickBy(a, f, 1);
+  const minBy = (a, f) => pickBy(a, f, -1);
+  const topOf = (map) => [...map].sort((a, b) => b[1] - a[1])[0] || null;
+  const times = (x) => (x >= 10 ? nf.format(Math.round(x)) : nf1.format(x)) + '×';
+  const pctTxt = (x) => (x >= 10 ? nf.format(Math.round(x)) : x >= 1 ? nf1.format(x) : nf2s.format(x)) + '%';
+  function km2Txt(x) {
+    if (x >= 1e6) return `${nf1.format(x / 1e6)} miljoen km²`;
+    return `${nf.format(Math.round(x / (x >= 1e4 ? 1000 : 1)) * (x >= 1e4 ? 1000 : 1))} km²`;
+  }
+  function humanTime(h) {
+    if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
+    if (h < 48) return `${nf1.format(h)} uur`;
+    const d = h / 24;
+    if (d < 60) return `${nf.format(Math.round(d))} dagen`;
+    if (d < 365) return `${nf1.format(d / 30.44)} maanden`;
+    return `${nf1.format(d / 365.25)} jaar`;
+  }
+  function humanSec(s) {
+    if (s < 60) return `${s < 10 ? nf1.format(s) : nf.format(Math.round(s))} sec`;
+    return `${nf1.format(s / 60)} min`;
+  }
+  const latTxt = (v) => `${nf.format(Math.round(Math.abs(v)))}° ${v >= 0 ? 'NB' : 'ZB'}`;
+  const lonTxt = (v) => `${nf.format(Math.round(Math.abs(v)))}° ${v >= 0 ? 'OL' : 'WL'}`;
+
+  const centroidCache = new Map();
+  function centroidOf(key) {
+    if (centroidCache.has(key)) return centroidCache.get(key);
+    const s = mainShape(key);
+    const c = s ? d3.geoCentroid(s) : null;
+    if (S.byKey.size) centroidCache.set(key, c);
+    return c;
+  }
+  function firstLetter(key) {
+    const c = norm(nameOf(key)).charAt(0).toUpperCase();
+    return /[A-Z]/.test(c) ? c : null;
+  }
+
+  function funStats() {
+    const cs = countryStats();
+    const fs = flightStats();
+    const visited = Object.keys(data.countries)
+      .filter((k) => data.countries[k] > 0 && INFO.has(k))
+      .sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'nl'));
+    const sov = visited.filter((k) => INFO.get(k).sovereign);
+    const st = { cs, fs, visited, sov };
+
+    st.continents = Object.keys(CONTINENTS).filter((c) => cs.per[c].visited > 0);
+    st.totalVisits = visited.reduce((s, k) => s + data.countries[k], 0);
+    st.fav = maxBy(visited, (k) => data.countries[k]);
+
+    // Landen-alfabet: met welke beginletters heb je al een land?
+    const all = [...INFO.values()].filter((i) => i.sovereign).map((i) => firstLetter(i.key)).filter(Boolean);
+    st.possibleLetters = [...new Set(all)].sort();
+    st.letters = new Set(sov.map(firstLetter).filter(Boolean));
+
+    // Verlanglijst
+    const newSov = data.wishlist.filter((k) => INFO.has(k) && INFO.get(k).sovereign && !(data.countries[k] > 0)).length;
+    st.afterWish = cs.visited + newSov;
+
+    // Oppervlakte en uitersten (pas als de wereldkaart geladen is)
+    const cents = S.area.size ? visited.map((k) => [k, centroidOf(k)]).filter((x) => x[1]) : [];
+    if (S.area.size) {
+      let km2 = 0;
+      const sized = [];
+      for (const k of visited) {
+        const a = S.area.get(k);
+        if (!a) continue;
+        km2 += a * KM2_PER_SR * areaFactor(k);
+        if (INFO.get(k).sovereign) sized.push([k, a * KM2_PER_SR]);
+      }
+      st.km2 = km2;
+      if (sized.length >= 2) { st.biggest = maxBy(sized, (x) => x[1]); st.smallest = minBy(sized, (x) => x[1]); }
+      if (cents.length >= 2) {
+        st.ext = {
+          n: maxBy(cents, (x) => x[1][1]), s: minBy(cents, (x) => x[1][1]),
+          e: maxBy(cents, (x) => x[1][0]), w: minBy(cents, (x) => x[1][0]),
+          eq: minBy(cents, (x) => Math.abs(x[1][1])),
+        };
+      }
+    }
+
+    if (!fs.n) return st;
+
+    // Vluchten
+    const fl = data.flights;
+    st.avg = fs.km / fs.n;
+    st.shortest = minBy(fl.filter((f) => f.km > 0), (f) => f.km);
+    const routes = new Map();
+    for (const f of fl) routes.set(routeKey(f), (routes.get(routeKey(f)) || 0) + 1);
+    st.topRoute = topOf(routes);
+    const airlines = new Map(), airlineName = new Map();
+    for (const f of fl) {
+      const a = (f.airline || '').trim();
+      if (!a) continue;
+      const k = norm(a);
+      airlines.set(k, (airlines.get(k) || 0) + 1);
+      if (!airlineName.has(k)) airlineName.set(k, a);
+    }
+    const ta = topOf(airlines);
+    st.topAirline = ta ? [airlineName.get(ta[0]), ta[1]] : null;
+    st.airlineCount = airlines.size;
+    st.home = topOf(fs.airports);
+    st.topYear = topOf(new Map([...fs.years].filter(([y]) => y !== '?')));
+    const months = new Map();
+    for (const f of fl) { const m = +(f.date || '').slice(5, 7); if (m) months.set(m, (months.get(m) || 0) + 1); }
+    st.topMonth = topOf(months);
+    const dates = fl.map((f) => f.date).filter(Boolean).sort();
+    st.first = dates[0] || null;
+
+    const aps = [...fs.airports.keys()].map((c) => [c, airportOf(c)]).filter((x) => x[1]);
+    st.apCountries = new Set(aps.map((x) => x[1].country).filter(Boolean)).size;
+    if (aps.length >= 2) {
+      st.apExt = {
+        n: maxBy(aps, (x) => +x[1].lat), s: minBy(aps, (x) => +x[1].lat),
+        e: maxBy(aps, (x) => +x[1].lon), w: minBy(aps, (x) => +x[1].lon),
+      };
+    }
+    let eq = 0, dl = 0;
+    for (const f of fl) {
+      const a = airportOf(f.from), b = airportOf(f.to);
+      if (!a || !b) continue;
+      if ((+a.lat >= 0) !== (+b.lat >= 0)) eq++;
+      if (Math.abs(+a.lon - +b.lon) > 180) dl++;
+    }
+    st.equator = eq;
+    st.dateline = dl;
+    st.co2 = fs.km * CO2_KG_PER_KM;
+
+    const homeAp = st.home && airportOf(st.home[0]);
+    if (homeAp && cents.length) {
+      const far = maxBy(cents, (x) => haversine(homeAp, { lat: x[1][1], lon: x[1][0] }));
+      st.farthest = { key: far[0], km: haversine(homeAp, { lat: far[1][1], lon: far[1][0] }), from: homeAp };
+    }
+    return st;
+  }
+
+  function renderStats() {
+    const st = funStats();
+    const { cs, fs } = st;
+    const tile = (big, lbl, sub, cls) => `<div class="ft${cls ? ' ' + cls : ''}"><div class="ft-big">${big}</div><div class="ft-lbl">${lbl}</div>${sub ? `<div class="ft-sub">${sub}</div>` : ''}</div>`;
+    const grid = (tiles) => `<div class="ft-grid">${tiles.filter(Boolean).join('')}</div>`;
+    const sect = (title, inner) => `<section class="fs-sect"><h3>${title}</h3>${inner}</section>`;
+    const row = (lbl, val) => (val ? `<div class="fs-row"><span>${lbl}</span><b>${val}</b></div>` : '');
+    const apTxt = (code) => `${esc(code)} ${esc(cityOf(airportOf(code)))}`;
+    let h = '';
+
+    if (!st.visited.length && !fs.n) {
+      $('#stats-body').innerHTML = '<p class="empty">Nog niets om te tellen. Duid landen aan op de kaart en voeg je vluchten toe, dan verschijnen hier je weetjes.</p>';
+      return;
+    }
+
+    // Jouw wereld
+    if (st.visited.length) {
+      const pct = cs.total ? (cs.visited / cs.total) * 100 : 0;
+      const missing = Object.keys(CONTINENTS).filter((c) => !st.continents.includes(c)).map((c) => CONTINENTS[c]);
+      const favN = st.fav ? data.countries[st.fav] : 0;
+      h += sect('Jouw wereld', grid([
+        tile(nf.format(cs.visited), cs.visited === 1 ? 'land bezocht' : 'landen bezocht', `${pctTxt(pct)} van alle ${cs.total} landen`),
+        tile(`${st.continents.length}<small> / 6</small>`, 'continenten', missing.length ? `Nog te gaan: ${esc(missing.join(', '))}` : 'Allemaal! Antarctica misschien?'),
+        st.km2 != null ? tile(pctTxt(cs.areaPct), 'van het landoppervlak', `${km2Txt(st.km2)}, dat is ${times(st.km2 / BELGIUM_KM2)} België`) : '',
+        tile(nf.format(st.totalVisits), 'bezoeken in totaal', favN > 1 ? `Vaakst: ${esc(nameOf(st.fav))} (${favN}×)` : ''),
+      ]) + (st.afterWish > cs.visited
+        ? `<p class="hint fs-note">Werk je je verlanglijst af, dan kom je op <b>${nf.format(st.afterWish)}</b> landen: ${pctTxt((st.afterWish / cs.total) * 100)} van de wereld.</p>`
+        : ''));
+
+      if (st.ext || st.biggest) {
+        const e = st.ext;
+        const far = st.farthest;
+        h += sect('Uitersten op je kaart', grid([
+          e && tile(esc(nameOf(e.n[0])), 'noordelijkst', latTxt(e.n[1][1]), 'name'),
+          e && tile(esc(nameOf(e.s[0])), 'zuidelijkst', latTxt(e.s[1][1]), 'name'),
+          e && tile(esc(nameOf(e.w[0])), 'westelijkst', lonTxt(e.w[1][0]), 'name'),
+          e && tile(esc(nameOf(e.e[0])), 'oostelijkst', lonTxt(e.e[1][0]), 'name'),
+          e && tile(esc(nameOf(e.eq[0])), 'dichtst bij de evenaar', latTxt(e.eq[1][1]), 'name'),
+          st.biggest && tile(esc(nameOf(st.biggest[0])), 'grootste land', km2Txt(st.biggest[1]), 'name'),
+          st.smallest && tile(esc(nameOf(st.smallest[0])), 'kleinste land', km2Txt(st.smallest[1]), 'name'),
+          far && tile(esc(nameOf(far.key)), `verst van ${esc(cityOf(far.from))}`, `± ${nf.format(Math.round(far.km / 100) * 100)} km in vogelvlucht`, 'name'),
+        ]));
+      }
+
+      const nPos = st.possibleLetters.length;
+      const nHave = st.possibleLetters.filter((l) => st.letters.has(l)).length;
+      h += sect('Landen-alfabet', `
+        <p class="hint">Met hoeveel beginletters heb je al een land? ${nHave} van de ${nPos} letters waarmee een land begint.</p>
+        <div class="abc">${st.possibleLetters.map((l) => `<span class="${st.letters.has(l) ? 'on' : ''}">${l}</span>`).join('')}</div>`);
+    }
+
+    // Vluchten
+    if (fs.n) {
+      const moon = fs.km / MOON_KM;
+      h += sect('Zo ver vloog je', grid([
+        tile(nf.format(Math.round(fs.km)), 'kilometer gevlogen', `${nf.format(fs.n)} ${fs.n === 1 ? 'vlucht' : 'vluchten'}, gemiddeld ${nf.format(Math.round(st.avg))} km`),
+        tile(times(fs.km / EARTH_KM), 'rond de aarde', 'langs de evenaar, 40.075 km'),
+        tile(moon >= 1 ? times(moon) : pctTxt(moon * 100), moon >= 1 ? 'tot aan de maan' : 'van de weg naar de maan',
+          moon >= 1 ? `${times(moon / 2)} heen en terug` : `nog ${nf.format(Math.round(MOON_KM - fs.km))} km te gaan`),
+        tile(pctTxt((fs.km / SUN_KM) * 100), 'van de weg naar de zon', '149,6 miljoen km ver'),
+      ]));
+      h += sect('Hoe lang zou dat duren?', grid([
+        tile(humanTime(fs.km / 5), 'te voet', 'non-stop wandelen aan 5 km/u'),
+        tile(humanTime(fs.km / 20), 'met de fiets', 'zonder pauze, aan 20 km/u'),
+        tile(humanTime(fs.km / ISS_KMH), 'voor het ISS', 'het ruimtestation haalt 27.600 km/u'),
+        tile(humanSec(fs.km / LIGHT_KMS), 'voor het licht', '300.000 km per seconde'),
+      ]));
+      h += sect('Tijd in de lucht', grid([
+        tile(humanTime(fs.hours), 'in de lucht', 'schatting'),
+        tile(nf.format(Math.round(fs.hours / 2)), 'films van 2 uur', 'had je kunnen kijken'),
+        tile(nf.format(Math.round(fs.hours / 8)), 'nachten slaap', 'van 8 uur'),
+        tile(nf1.format(fs.hours / 38), 'werkweken', 'van 38 uur'),
+      ]));
+
+      const L = fs.longest, Sh = st.shortest;
+      h += sect('Vliegrecords', `<div class="fs-rows">
+        ${row('Langste vlucht', L && `${esc(cityOf(airportOf(L.from)))} → ${esc(cityOf(airportOf(L.to)))}, ${nf.format(L.km)} km`)}
+        ${row('Kortste vlucht', Sh && fs.n > 1 && `${esc(cityOf(airportOf(Sh.from)))} → ${esc(cityOf(airportOf(Sh.to)))}, ${nf.format(Sh.km)} km`)}
+        ${row('Favoriete route', st.topRoute && st.topRoute[1] > 1 && `${esc(st.topRoute[0].replace('-', ' ⇄ '))}, ${st.topRoute[1]}×`)}
+        ${row('Thuisluchthaven', st.home && `${apTxt(st.home[0])}, ${st.home[1]}× vertrek of aankomst`)}
+        ${row('Favoriete maatschappij', st.topAirline && `${esc(st.topAirline[0])}, ${st.topAirline[1]}×${st.airlineCount > 1 ? `, van de ${st.airlineCount} waarmee je vloog` : ''}`)}
+        ${row('Drukste jaar', st.topYear && `${st.topYear[0]}, ${st.topYear[1]} ${st.topYear[1] === 1 ? 'vlucht' : 'vluchten'}`)}
+        ${row('Favoriete maand', st.topMonth && `${MONTHS[st.topMonth[0] - 1]}, ${st.topMonth[1]}×`)}
+        ${row('Eerste vlucht in je lijst', st.first && fmtDate(st.first))}
+      </div>`);
+
+      const a = st.apExt;
+      h += sect('Kriskras over de wereld', grid([
+        tile(nf.format(st.equator), 'keer over de evenaar', st.equator ? 'van noord naar zuid of terug' : 'nog nooit naar het zuiden'),
+        tile(nf.format(st.dateline), 'keer over de datumgrens', 'over de Grote Oceaan'),
+        tile(nf.format(fs.airports.size), fs.airports.size === 1 ? 'luchthaven' : 'luchthavens', st.apCountries ? `in ${st.apCountries} ${st.apCountries === 1 ? 'land' : 'landen'}` : ''),
+        tile(nf.format(fs.routes), fs.routes === 1 ? 'route' : 'verschillende routes'),
+      ]) + (a ? `<div class="fs-rows">
+        ${row('Noordelijkste luchthaven', `${apTxt(a.n[0])}, ${latTxt(+a.n[1].lat)}`)}
+        ${row('Zuidelijkste luchthaven', `${apTxt(a.s[0])}, ${latTxt(+a.s[1].lat)}`)}
+        ${row('Westelijkste luchthaven', `${apTxt(a.w[0])}, ${lonTxt(+a.w[1].lon)}`)}
+        ${row('Oostelijkste luchthaven', `${apTxt(a.e[0])}, ${lonTxt(+a.e[1].lon)}`)}
+      </div>` : ''));
+
+      h += sect('Voetafdruk', grid([
+        tile(st.co2 >= 1000 ? `${nf1.format(st.co2 / 1000)} ton` : `${nf.format(Math.round(st.co2))} kg`, 'CO₂ (ruwe schatting)', 'ongeveer 0,15 kg per km per passagier'),
+        tile(nf.format(Math.max(1, Math.round(st.co2 / TREE_KG_PER_YEAR))), 'bomen', 'nemen dat samen in één jaar op'),
+      ]));
+    } else {
+      h += sect('Vluchten', '<p class="hint">Voeg vluchten toe op het tabblad Vluchten. Dan zie je hier hoe vaak je rond de aarde vloog, hoe lang je dat te voet zou doen, je vliegrecords en meer.</p>');
+    }
+
+    h += '<p class="footnote">Afstanden zijn in vogelvlucht. Tijden, oppervlaktes en CO₂ zijn schattingen.</p>';
+    $('#stats-body').innerHTML = h;
+  }
+  function openStats() {
+    renderStats();
+    $('#stats').showModal();
+    $('#stats-body').scrollTop = 0;
+  }
+
+  /* ------------------------------------------------------------------
+     16. Delen: een leesbaar overzicht als afbeelding of tekst
+     ------------------------------------------------------------------ */
+  const flagOf = (a2) => (a2 && /^[A-Z]{2}$/.test(a2) && a2 !== 'XK'
+    ? String.fromCodePoint(...[...a2].map((c) => 0x1F1A5 + c.charCodeAt(0))) + ' ' : '');
+  const siteUrl = () => (/^https?:$/.test(location.protocol) ? location.origin + location.pathname.replace(/index\.html$/, '') : '');
+
+  function downloadBlob(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  }
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* oude browser */ }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    ta.remove();
+    return ok;
+  }
+  function visitedByContinent() {
+    const groups = {};
+    for (const [k, v] of Object.entries(data.countries)) {
+      if (!(v > 0) || !INFO.has(k)) continue;
+      const c = INFO.get(k).sovereign ? INFO.get(k).continent : 'OT';
+      (groups[c] = groups[c] || []).push(k);
+    }
+    for (const g of Object.values(groups)) g.sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'nl'));
+    return groups;
+  }
+  const moonTxt = (km) => (km >= MOON_KM ? `${times(km / MOON_KM)} tot aan de maan` : `${pctTxt((km / MOON_KM) * 100)} van de weg naar de maan`);
+
+  function shareText(o) {
+    const cs = countryStats(), fs = flightStats();
+    const pct = cs.total ? (cs.visited / cs.total) * 100 : 0;
+    const conts = Object.keys(CONTINENTS).filter((c) => cs.per[c].visited > 0).length;
+    const L = [`🌍 ${data.title || 'Mijn reisatlas'}`, ''];
+    L.push(`${cs.visited} van de ${cs.total} landen bezocht (${pctTxt(pct)}), op ${conts} van de 6 continenten.`);
+    if (o.list) {
+      const groups = visitedByContinent();
+      for (const [c, name] of Object.entries(CONTINENTS)) {
+        const g = (groups[c] || []);
+        if (!g.length) continue;
+        L.push('', `${name} (${g.length})`);
+        L.push(g.map((k) => `${flagOf(INFO.get(k).a2)}${nameOf(k)}${data.countries[k] > 1 ? ` ${data.countries[k]}×` : ''}`).join(', '));
+      }
+      if (groups.OT) L.push('', `Ook nog: ${groups.OT.map((k) => nameOf(k)).join(', ')}`);
+    }
+    if (fs.n) {
+      L.push('', `✈️ ${nf.format(fs.n)} ${fs.n === 1 ? 'vlucht' : 'vluchten'}, ${nf.format(Math.round(fs.km))} km`);
+      L.push(`Dat is ${times(fs.km / EARTH_KM)} rond de aarde, of ${moonTxt(fs.km)}.`);
+      const f = fs.longest;
+      if (f) L.push(`Langste vlucht: ${cityOf(airportOf(f.from)) || f.from} → ${cityOf(airportOf(f.to)) || f.to} (${nf.format(f.km)} km)`);
+    }
+    if (o.wish && data.wishlist.length) {
+      const w = data.wishlist.filter((k) => INFO.has(k)).sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'nl'));
+      L.push('', `⭐ Op mijn verlanglijst: ${w.map((k) => `${flagOf(INFO.get(k).a2)}${nameOf(k)}`).join(', ')}`);
+    }
+    const url = siteUrl();
+    if (url) L.push('', `Bekijk mijn kaart: ${url}`);
+    return L.join('\n');
+  }
+
+  function loadCardFonts() {
+    if (!document.fonts || !document.fonts.load) return Promise.resolve();
+    const fonts = ['600 80px "Barlow Condensed"', '500 30px "Barlow Condensed"', '400 26px Barlow', '500 26px Barlow', '600 26px Barlow'];
+    return Promise.race([
+      Promise.all(fonts.map((f) => document.fonts.load(f))),
+      new Promise((r) => setTimeout(r, 2500)),
+    ]).catch(() => {});
+  }
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  async function drawShareCard(o) {
+    await loadCardFonts();
+    const W = 1080, P = 72, IW = W - 2 * P;
+    const INK = '#13213a', INK2 = '#46546a', MUTED = '#7a8596', LINE = '#d5dce2';
+    const cond = (w, s) => `${w} ${s}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+    const sans = (w, s) => `${w} ${s}px Barlow, system-ui, sans-serif`;
+    const cv = document.createElement('canvas');
+    cv.width = W;
+    cv.height = 6000;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#e9edf0';
+    ctx.fillRect(0, 0, W, cv.height);
+    ctx.textBaseline = 'alphabetic';
+    const cs = countryStats(), fs = flightStats();
+    let y = P;
+
+    const text = (s, x, yy, font, color, align) => {
+      ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.fillText(s, x, yy); ctx.textAlign = 'left';
+    };
+    const heading = (s) => {
+      y += 30;
+      text(s, P, y + 34, cond(600, 40), INK);
+      y += 52;
+      ctx.fillStyle = LINE; ctx.fillRect(P, y, IW, 2);
+      y += 22;
+    };
+    const wrap = (items, font, color, lineH) => {
+      ctx.font = font;
+      ctx.fillStyle = color;
+      let line = '';
+      const lines = [];
+      items.forEach((it, i) => {
+        const piece = it + (i < items.length - 1 ? ',' : '');
+        const test = line ? line + ' ' + piece : piece;
+        if (line && ctx.measureText(test).width > IW) { lines.push(line); line = piece; } else line = test;
+      });
+      if (line) lines.push(line);
+      for (const l of lines) { ctx.fillText(l, P, y + lineH * 0.75); y += lineH; }
+    };
+    const tiles = (items) => {
+      const cols = 4, cw = IW / cols, rh = 118;
+      items.forEach(([big, lbl], i) => {
+        const x = P + (i % cols) * cw, yy = y + Math.floor(i / cols) * rh;
+        let size = 70;
+        ctx.font = cond(600, size);
+        while (size > 36 && ctx.measureText(big).width > cw - 18) { size -= 4; ctx.font = cond(600, size); }
+        text(big, x, yy + 62, cond(600, size), INK);
+        let ls = 22;
+        ctx.font = sans(500, ls);
+        while (ls > 15 && ctx.measureText(lbl).width > cw - 14) { ls -= 1; ctx.font = sans(500, ls); }
+        text(lbl, x, yy + 96, sans(500, ls), INK2);
+      });
+      y += Math.ceil(items.length / cols) * rh;
+    };
+
+    // Kop
+    let title = data.title || 'Mijn reisatlas';
+    let tsize = 88;
+    ctx.font = cond(600, tsize);
+    while (tsize > 48 && ctx.measureText(title).width > IW) { tsize -= 4; ctx.font = cond(600, tsize); }
+    text(title, P, y + tsize * 0.8, cond(600, tsize), INK);
+    y += tsize * 0.8 + 18;
+    const when = data.updatedAt ? new Date(data.updatedAt) : new Date();
+    text(`Mijn reizen tot ${when.toLocaleDateString('nl-BE', { day: 'numeric', month: 'long', year: 'numeric' })}`, P, y + 26, sans(400, 26), MUTED);
+    y += 58;
+
+    // Kaart
+    const pts = [];
+    for (let lon = -179.5; lon <= 179.5; lon += 4.5) pts.push([lon, 0], [lon, 83], [lon, -56]);
+    const mapH = Math.round(IW * 0.47);
+    const pad = 18;
+    const proj = d3.geoNaturalEarth1().fitExtent([[P + pad, y + pad], [P + IW - pad, y + mapH - pad]], { type: 'MultiPoint', coordinates: pts });
+    const path = d3.geoPath(proj, ctx);
+    roundRect(ctx, P, y, IW, mapH, 22);
+    ctx.fillStyle = '#d3e1e8';
+    ctx.fill();
+    ctx.save();
+    roundRect(ctx, P, y, IW, mapH, 22);
+    ctx.clip();
+    ctx.beginPath(); path(GRATICULE); ctx.strokeStyle = 'rgba(19,33,58,.07)'; ctx.lineWidth = 1; ctx.stroke();
+
+    const patterns = {};
+    const hatch = (lvl, kind) => {
+      const id = lvl + kind;
+      if (patterns[id]) return patterns[id];
+      const s = kind === 'l' ? 10 : 8;
+      const c = document.createElement('canvas');
+      c.width = c.height = s;
+      const g = c.getContext('2d');
+      g.fillStyle = LAND; g.fillRect(0, 0, s, s);
+      g.strokeStyle = VISIT_COLORS[lvl]; g.lineWidth = kind === 'l' ? 2.8 : 4.4;
+      g.beginPath();
+      for (const off of [-s, 0, s]) { g.moveTo(off, s); g.lineTo(off + s, 0); }
+      g.stroke();
+      return (patterns[id] = ctx.createPattern(c, 'repeat'));
+    };
+    const fillOf = (key) => {
+      const v = data.countries[key] || 0;
+      if (!v) return LAND;
+      const lvl = Math.min(v, 5);
+      if (BIG_COUNTRIES[key] && byRegion()) {
+        const c = coverage(key);
+        if (c < 1 / 3) return hatch(lvl, 'l');
+        if (c < 2 / 3) return hatch(lvl, 'd');
+      }
+      return VISIT_COLORS[lvl];
+    };
+    ctx.lineJoin = 'round';
+    for (const f of S.features) {
+      ctx.beginPath(); path(f);
+      ctx.fillStyle = fillOf(f.key); ctx.fill();
+      ctx.strokeStyle = '#eef1f3'; ctx.lineWidth = 0.8; ctx.stroke();
+    }
+    if (byRegion() && data.countries['840'] > 0 && S.usStates) {
+      const sel = new Set(data.regions['840'] || []);
+      ctx.fillStyle = VISIT_COLORS[Math.min(data.countries['840'], 5)];
+      for (const s of S.usStates) {
+        if (!sel.has(s.rid)) continue;
+        ctx.beginPath(); path(s); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 0.6; ctx.stroke();
+      }
+    }
+    const showFlights = o.flights && fs.n > 0;
+    if (showFlights) {
+      const routes = new Map();
+      for (const f of data.flights) {
+        const k = routeKey(f);
+        const r = routes.get(k) || { a: airportOf(f.from), b: airportOf(f.to), n: 0 };
+        r.n++;
+        routes.set(k, r);
+      }
+      ctx.lineCap = 'round';
+      for (const r of routes.values()) {
+        if (!r.a || !r.b) continue;
+        ctx.beginPath();
+        path({ type: 'LineString', coordinates: [[+r.a.lon, +r.a.lat], [+r.b.lon, +r.b.lat]] });
+        ctx.strokeStyle = 'rgba(19,33,58,.62)';
+        ctx.lineWidth = 1.6 + 0.45 * Math.min(r.n, 6);
+        ctx.stroke();
+      }
+      for (const code of fs.airports.keys()) {
+        const ap = airportOf(code);
+        const p = ap && proj([+ap.lon, +ap.lat]);
+        if (!p) continue;
+        ctx.beginPath(); ctx.arc(p[0], p[1], 4.5, 0, 2 * Math.PI);
+        ctx.fillStyle = '#fff'; ctx.fill();
+        ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.stroke();
+      }
+    }
+    ctx.restore();
+    y += mapH + 18;
+
+    // Legende
+    let lx = P;
+    const swatch = (fill, label) => {
+      ctx.fillStyle = fill;
+      roundRect(ctx, lx, y + 4, 20, 20, 5); ctx.fill();
+      text(label, lx + 28, y + 21, sans(400, 20), INK2);
+      ctx.font = sans(400, 20);
+      lx += 28 + ctx.measureText(label).width + 24;
+    };
+    swatch(VISIT_COLORS[1], '1×');
+    swatch(VISIT_COLORS[2], '2×');
+    swatch(VISIT_COLORS[3], '3×');
+    swatch(VISIT_COLORS[4], '4×');
+    swatch(VISIT_COLORS[5], '5× of meer');
+    if (byRegion() && Object.keys(BIG_COUNTRIES).some((k) => data.countries[k] > 0 && coverage(k) < 2 / 3)) {
+      swatch(hatch(1, 'd'), 'groot land, deels gezien');
+    }
+    if (showFlights) {
+      ctx.strokeStyle = INK; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(lx, y + 14); ctx.lineTo(lx + 26, y + 14); ctx.stroke();
+      text('vluchtroute', lx + 36, y + 21, sans(400, 20), INK2);
+    }
+    y += 36;
+
+    // Cijfers
+    const pct = cs.total ? (cs.visited / cs.total) * 100 : 0;
+    const conts = Object.keys(CONTINENTS).filter((c) => cs.per[c].visited > 0).length;
+    heading('Landen');
+    tiles([
+      [nf.format(cs.visited), cs.visited === 1 ? 'land bezocht' : 'landen bezocht'],
+      [pctTxt(pct), 'van alle landen'],
+      [`${conts}/6`, 'continenten'],
+      [pctTxt(cs.areaPct), 'van het landoppervlak'],
+    ]);
+
+    // Per continent
+    y += 8;
+    const colW = (IW - 48) / 2;
+    Object.entries(CONTINENTS).forEach(([c, name], i) => {
+      const p = cs.per[c];
+      const x = P + (i % 2) * (colW + 48);
+      const yy = y + Math.floor(i / 2) * 64;
+      text(name, x, yy + 24, sans(600, 24), INK);
+      text(`${p.visited} / ${p.total}`, x + colW, yy + 24, cond(600, 28), INK2, 'right');
+      roundRect(ctx, x, yy + 36, colW, 10, 5); ctx.fillStyle = '#d9dfe4'; ctx.fill();
+      const bw = p.total ? (p.visited / p.total) * colW : 0;
+      if (bw > 0) { roundRect(ctx, x, yy + 36, Math.max(bw, 10), 10, 5); ctx.fillStyle = VISIT_COLORS[1]; ctx.fill(); }
+    });
+    y += Math.ceil(Object.keys(CONTINENTS).length / 2) * 64;
+
+    if (fs.n) {
+      heading('Vluchten');
+      const moon = fs.km / MOON_KM;
+      tiles([
+        [nf.format(fs.n), fs.n === 1 ? 'vlucht' : 'vluchten'],
+        [nf.format(Math.round(fs.km)), 'kilometer'],
+        [times(fs.km / EARTH_KM), 'rond de aarde'],
+        [moon >= 1 ? times(moon) : pctTxt(moon * 100), moon >= 1 ? 'tot aan de maan' : 'van de weg naar de maan'],
+      ]);
+      const f = fs.longest;
+      if (f) {
+        text(`Langste vlucht: ${cityOf(airportOf(f.from)) || f.from} → ${cityOf(airportOf(f.to)) || f.to}, ${nf.format(f.km)} km`, P, y + 24, sans(500, 24), INK2);
+        y += 40;
+      }
+    }
+
+    if (o.list && cs.visited + cs.terr.length > 0) {
+      heading('Waar ik al was');
+      const groups = visitedByContinent();
+      for (const [c, name] of [...Object.entries(CONTINENTS), ['OT', 'Andere gebieden']]) {
+        const g = groups[c];
+        if (!g) continue;
+        text(`${name}  ·  ${g.length}`, P, y + 26, cond(600, 30), INK);
+        y += 38;
+        wrap(g.map((k) => nameOf(k) + (data.countries[k] > 1 ? ` (${data.countries[k]}×)` : '')), sans(400, 24), INK2, 34);
+        y += 14;
+      }
+    }
+
+    if (o.wish && data.wishlist.length) {
+      heading('Op mijn verlanglijst');
+      const w = data.wishlist.filter((k) => INFO.has(k)).sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'nl'));
+      wrap(w.map(nameOf), sans(400, 24), INK2, 34);
+    }
+
+    // Voet
+    y += 30;
+    ctx.fillStyle = LINE; ctx.fillRect(P, y, IW, 2);
+    y += 18;
+    const host = siteUrl().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    text(host ? `Bekijk de hele kaart op ${host}` : 'Gemaakt met mijn reisatlas', P, y + 24, sans(500, 22), MUTED);
+    y += 24 + P - 20;
+
+    const out = document.createElement('canvas');
+    out.width = W;
+    out.height = Math.ceil(y);
+    out.getContext('2d').drawImage(cv, 0, 0);
+    return out;
+  }
+
+  let shareBlob = null, shareRun = 0;
+  const shareOpts = () => ({
+    flights: $('#shr-opt-flights').checked, list: $('#shr-opt-list').checked, wish: $('#shr-opt-wish').checked,
+  });
+  const shareFile = () => new File([shareBlob], 'mijn-reizen.png', { type: 'image/png' });
+  async function refreshShare() {
+    const run = ++shareRun;
+    const o = shareOpts();
+    $('#shr-text').value = shareText(o);
+    $('.share-preview').classList.add('busy');
+    const cv = await drawShareCard(o);
+    const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+    if (run !== shareRun) return;
+    shareBlob = blob;
+    const img = $('#shr-img');
+    if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+    img.src = URL.createObjectURL(blob);
+    $('.share-preview').classList.remove('busy');
+    let canFiles = false;
+    try { canFiles = !!(navigator.canShare && navigator.canShare({ files: [shareFile()] })); } catch (e) { canFiles = false; }
+    $('#shr-native').hidden = !canFiles;
+  }
+  function openShare() {
+    if (!S.ready) { toast('De wereldkaart laadt nog even. Probeer het zo opnieuw.'); return; }
+    const noFl = !data.flights.length, noWish = !data.wishlist.length;
+    $('#shr-opt-flights').disabled = noFl;
+    $('#shr-opt-flights').closest('label').classList.toggle('off', noFl);
+    $('#shr-opt-wish').disabled = noWish;
+    $('#shr-opt-wish').closest('label').classList.toggle('off', noWish);
+    $('#shr-copyimg').hidden = !(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write);
+    $('#shr-copylink').hidden = !siteUrl();
+    $('#share').showModal();
+    refreshShare();
+  }
+  function bindShare() {
+    for (const id of ['#shr-opt-flights', '#shr-opt-list', '#shr-opt-wish']) $(id).addEventListener('change', refreshShare);
+    $('#shr-download').addEventListener('click', () => {
+      if (!shareBlob) return;
+      downloadBlob(shareBlob, 'mijn-reizen.png');
+      toast('De afbeelding is gedownload.');
+    });
+    $('#shr-native').addEventListener('click', async () => {
+      if (!shareBlob) return;
+      try { await navigator.share({ files: [shareFile()], title: data.title || 'Mijn reisatlas' }); } catch (e) {
+        if (e.name !== 'AbortError') toast('Delen lukte niet. Download de afbeelding en stuur ze zelf door.');
+      }
+    });
+    $('#shr-copyimg').addEventListener('click', async () => {
+      if (!shareBlob) return;
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': shareBlob })]);
+        toast('Afbeelding gekopieerd. Plak ze in een chat of mail.');
+      } catch (e) { toast('Kopiëren lukte niet in deze browser. Download de afbeelding.'); }
+    });
+    $('#shr-copytext').addEventListener('click', async () => {
+      toast(await copyText($('#shr-text').value) ? 'Tekst gekopieerd. Plak hem in een chat of mail.' : 'Kopiëren lukte niet. Selecteer de tekst en kopieer hem zelf.');
+    });
+    $('#shr-copylink').addEventListener('click', async () => {
+      toast(await copyText(siteUrl()) ? 'Link naar je kaart gekopieerd.' : 'Kopiëren lukte niet.');
+    });
+  }
+
+  /* ------------------------------------------------------------------
+     17. Opstarten
      ------------------------------------------------------------------ */
   async function init() {
     buildInfo();

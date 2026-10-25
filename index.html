@@ -28,6 +28,14 @@
       <button type="button" data-tab="wish">Verlanglijst <em id="cnt-wish">0</em></button>
     </nav>
     <div class="actions">
+      <button type="button" class="btn" id="btn-stats" title="Leuke statistieken over je reizen en vluchten">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20v-7M12 20V5M19 20v-11"/></svg>
+        <span class="btn-label">Statistieken</span>
+      </button>
+      <button type="button" class="btn" id="btn-share" title="Deel een overzicht van je reizen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>
+        <span class="btn-label">Delen</span>
+      </button>
       <button type="button" class="btn" id="btn-export">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg>
         <span class="btn-export-label">Exporteer</span>
@@ -65,7 +73,7 @@
             <span><i style="background:var(--v3)"></i>3×</span>
             <span><i style="background:var(--v4)"></i>4×</span>
             <span><i style="background:var(--v5)"></i>5× of meer</span>
-            <span><i class="hatch"></i>Groot land, deels gezien</span>
+            <span id="legend-hatch"><i class="hatch"></i>Groot land, deels gezien</span>
           </div>
         </div>
         <div class="map-ui br zoom">
@@ -180,6 +188,10 @@
       <h3>Titel</h3>
       <input class="input" id="set-title" placeholder="Mijn reisatlas" aria-label="Titel van je atlas">
 
+      <h3>Grote landen</h3>
+      <label class="switch"><input type="checkbox" id="set-byregion"><span class="track"></span><span>Alleen de regio’s inkleuren waar ik was</span></label>
+      <p class="hint">Aan: de VS, Canada, Australië, Brazilië, China, India en Rusland kleuren per staat of provincie, en zijn gearceerd zolang je maar een deel zag. Uit: het hele land kleurt in zodra je er geweest bent, net als elk ander land.</p>
+
       <h3>Je gegevens bewaren</h3>
       <p class="hint">Alles wat je invult, wordt meteen bewaard in deze browser. Wil je het op elk toestel zien? Klik op Exporteer en upload het bestand reizen.json op GitHub, in plaats van het oude. Na een halve minuut staat je site bijgewerkt online.</p>
       <div class="btn-row">
@@ -191,6 +203,55 @@
       <h3>Opnieuw beginnen</h3>
       <p class="hint">Wist alles in deze browser. Wat op GitHub staat, blijft bestaan.</p>
       <button type="button" class="btn danger" id="set-reset">Alles wissen in deze browser</button>
+    </div>
+  </dialog>
+
+  <!-- Leuke statistieken -->
+  <dialog id="stats" class="wide" aria-label="Leuke statistieken">
+    <div class="sheet-head">
+      <div><h2>Leuke statistieken</h2><div class="sheet-sub">Je reizen en vluchten, in cijfers</div></div>
+      <div class="head-btns">
+        <button type="button" class="btn" data-open-share>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>
+          <span>Delen</span>
+        </button>
+        <button type="button" class="icon-btn" onclick="this.closest('dialog').close()" aria-label="Sluiten">✕</button>
+      </div>
+    </div>
+    <div class="dialog-body" id="stats-body"></div>
+  </dialog>
+
+  <!-- Delen -->
+  <dialog id="share" class="wide" aria-label="Delen">
+    <div class="sheet-head">
+      <div><h2>Deel je reizen</h2><div class="sheet-sub">Een overzicht dat iedereen in één oogopslag snapt</div></div>
+      <button type="button" class="icon-btn" onclick="this.closest('dialog').close()" aria-label="Sluiten">✕</button>
+    </div>
+    <div class="dialog-body share-body">
+      <div class="share-preview">
+        <img id="shr-img" alt="Voorbeeld van je reisoverzicht">
+      </div>
+      <div class="share-side">
+        <h3>Wat staat erop?</h3>
+        <label class="check"><input type="checkbox" id="shr-opt-flights" checked>Vluchtroutes op de kaart</label>
+        <label class="check"><input type="checkbox" id="shr-opt-list" checked>Lijst met alle landen</label>
+        <label class="check"><input type="checkbox" id="shr-opt-wish">Verlanglijst</label>
+
+        <h3>Als afbeelding</h3>
+        <p class="hint">Handig voor WhatsApp, Instagram of een mail.</p>
+        <div class="btn-row">
+          <button type="button" class="btn primary" id="shr-native" hidden>Delen…</button>
+          <button type="button" class="btn" id="shr-download">Download afbeelding</button>
+          <button type="button" class="btn" id="shr-copyimg" hidden>Kopieer afbeelding</button>
+        </div>
+
+        <h3>Als tekst</h3>
+        <textarea class="input share-text" id="shr-text" rows="9" readonly aria-label="Tekst om te delen"></textarea>
+        <div class="btn-row">
+          <button type="button" class="btn" id="shr-copytext">Kopieer tekst</button>
+          <button type="button" class="btn" id="shr-copylink">Kopieer link naar je kaart</button>
+        </div>
+      </div>
     </div>
   </dialog>
 
