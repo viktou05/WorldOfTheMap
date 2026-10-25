@@ -1,11 +1,10 @@
 /* =====================================================================
    Mijn reisatlas: app.js
    ---------------------------------------------------------------------
-   Alles draait in de browser; er is geen server of database nodig.
-   • Wat je invult, wordt automatisch bewaard in deze browser.
-   • Met "Exporteer" download je reizen.json. Zet dat bestand op GitHub
-     (in plaats van het oude) en Vercel zet je site vanzelf opnieuw
-     online. Dan ziet elk toestel, en iedereen met de link, dezelfde kaart.
+   • Zonder account wordt alles bewaard in deze browser.
+   • Met een account (Supabase, zie config.js en README) wordt alles in
+     je account bewaard en zie je je kaart op elk toestel waar je inlogt.
+   • Exporteren en importeren (reizen.json) kan nog altijd als reservekopie.
    ===================================================================== */
 (function () {
   'use strict';
@@ -218,17 +217,32 @@
   }
 
   /* ------------------------------------------------------------------
-     5. Opslaan, laden, exporteren
+     5. Opslaan, laden, exporteren, account
+     ------------------------------------------------------------------
+     Zonder account: alles in localStorage (en eventueel reizen.json).
+     Met account (Supabase): alles in je account, met een kopie in deze
+     browser zodat de kaart ook offline meteen verschijnt.
      ------------------------------------------------------------------ */
+  const CFG = window.REISATLAS_CONFIG || {};
+  const sb = (CFG.supabaseUrl && CFG.supabaseAnonKey && window.supabase && window.supabase.createClient)
+    ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey)
+    : null;
+  const TABLE = 'atlases';
+  let user = null;
+  const cloud = { saving: false, again: false, timer: null, state: 'ok', loading: false };
+  const userKey = (u = user) => (u ? `${STORE_KEY}:u:${u.id}` : STORE_KEY);
+  const pendingKey = (u = user) => `${DIRTY_KEY}:u:${u.id}`;
+  const stamp = (x) => (x && x.updatedAt) || '';
+  const readLS = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+  const hasContent = (d) => !!d && (Object.keys(d.countries || {}).length > 0 || (d.flights || []).length > 0 || (d.wishlist || []).length > 0);
+
   async function loadData() {
-    let local = null, remote = null;
-    try { local = JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) { /* niets bewaard */ }
+    let local = readLS(STORE_KEY), remote = null;
     try {
       const r = await fetch(DATA_FILE, { cache: 'no-store' });
       if (r.ok) remote = await r.json();
     } catch (e) { /* geen bestand op de site */ }
     const dirty = localStorage.getItem(DIRTY_KEY) === '1';
-    const stamp = (x) => (x && x.updatedAt) || '';
     if (local && remote && stamp(remote) > stamp(local)) {
       const ok = !dirty || confirm('Op de website staat een nieuwere versie van je reizen (reizen.json).\n\nWil je die laden? Wat je in deze browser veranderde en nog niet exporteerde, gaat dan verloren.');
       if (ok) { data = normalize(remote); persist(false); return; }
@@ -238,22 +252,282 @@
   }
   function persist(markDirty) {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(data));
-      if (markDirty) localStorage.setItem(DIRTY_KEY, '1'); else localStorage.removeItem(DIRTY_KEY);
-    } catch (e) { toast('Bewaren in deze browser lukte niet. Exporteer je gegevens voor de zekerheid.'); }
-    updateExportBadge();
+      localStorage.setItem(userKey(), JSON.stringify(data));
+      if (user) {
+        if (markDirty) localStorage.setItem(pendingKey(), '1');
+      } else if (markDirty) localStorage.setItem(DIRTY_KEY, '1');
+      else localStorage.removeItem(DIRTY_KEY);
+    } catch (e) {
+      if (!user) toast('Bewaren in deze browser lukte niet. Exporteer je gegevens voor de zekerheid.');
+    }
+    if (user && markDirty) scheduleCloudSave();
+    updateAccountButton();
   }
   function touch() { data.updatedAt = new Date().toISOString(); persist(true); }
   function commit() { touch(); renderAll(); }
 
-  function updateExportBadge() {
-    const dirty = localStorage.getItem(DIRTY_KEY) === '1';
-    const b = $('#btn-export .badge');
-    if (b) b.hidden = !dirty;
-    $('#btn-export').title = dirty
-      ? 'Je hebt wijzigingen die nog niet op GitHub staan. Download reizen.json en upload het.'
-      : 'Download reizen.json om op GitHub te zetten';
+  /* --- Synchroniseren met je account --- */
+  function setSync(state) { cloud.state = state; updateAccountButton(); }
+  function scheduleCloudSave() {
+    clearTimeout(cloud.timer);
+    setSync('busy');
+    cloud.timer = setTimeout(cloudSave, 800);
   }
+  async function cloudSave() {
+    clearTimeout(cloud.timer);
+    if (!user || !sb) return;
+    if (cloud.saving) { cloud.again = true; return; }
+    cloud.saving = true;
+    setSync('busy');
+    const u = user;
+    pruneAirports();
+    if (!data.updatedAt) data.updatedAt = new Date().toISOString();
+    const snap = JSON.parse(JSON.stringify(data));
+    let error = null;
+    try {
+      ({ error } = await sb.from(TABLE).upsert({ user_id: u.id, data: snap, updated_at: snap.updatedAt }));
+    } catch (e) { error = e; }
+    cloud.saving = false;
+    if (user !== u) return; // intussen uitgelogd
+    if (error) {
+      console.error(error);
+      setSync('err');
+    } else {
+      if (stamp(data) === stamp(snap)) localStorage.removeItem(pendingKey(u));
+      setSync(localStorage.getItem(pendingKey(u)) ? 'busy' : 'ok');
+    }
+    if (cloud.again) { cloud.again = false; cloudSave(); }
+  }
+  async function fetchCloud() {
+    const { data: row, error } = await sb.from(TABLE).select('data, updated_at').eq('user_id', user.id).maybeSingle();
+    if (error) throw error;
+    return row;
+  }
+  // Na het inloggen: haal je kaart uit je account.
+  async function cloudLoad() {
+    const u = user;
+    cloud.loading = true;
+    setSync('busy');
+    const cache = readLS(userKey(u));
+    const pending = localStorage.getItem(pendingKey(u)) === '1';
+    try {
+      const row = await fetchCloud();
+      if (user !== u) return;
+      if (!row) {
+        // Nieuw account: neem desgewenst mee wat al in deze browser staat.
+        const guest = normalize(readLS(STORE_KEY));
+        if (cache) data = normalize(cache);
+        else if (hasContent(guest) && confirm('Je account is nog leeg.\n\nWil je de reizen die in deze browser staan in je account zetten?')) data = guest;
+        else data = emptyData();
+        data.updatedAt = data.updatedAt || new Date().toISOString();
+        persist(true);
+        await cloudSave();
+      } else if (cache && pending && stamp(cache) > stamp(row.data)) {
+        // Wijzigingen van hier die nog niet doorgestuurd waren (bv. offline).
+        data = normalize(cache);
+        persist(true);
+      } else {
+        data = normalize(row.data);
+        persist(false);
+        setSync('ok');
+      }
+    } catch (e) {
+      console.error(e);
+      if (user !== u) return;
+      data = normalize(cache);
+      setSync('err');
+      toast('Je account kon niet geladen worden. Je ziet de laatst bewaarde versie op dit toestel.');
+    } finally {
+      cloud.loading = false;
+    }
+  }
+  // Kom je terug naar dit tabblad? Kijk of je intussen op een ander toestel iets veranderde.
+  async function cloudRefresh() {
+    if (!user || cloud.loading || cloud.saving || localStorage.getItem(pendingKey())) return;
+    try {
+      const row = await fetchCloud();
+      if (row && stamp(row.data) > stamp(data) && !localStorage.getItem(pendingKey())) {
+        data = normalize(row.data);
+        persist(false);
+        setSync('ok');
+        renderAll();
+      }
+    } catch (e) { /* later opnieuw */ }
+  }
+  async function syncNow() {
+    if (!user) return;
+    if (localStorage.getItem(pendingKey()) || cloud.state === 'err') await cloudSave();
+    await cloudRefresh();
+    renderAccount();
+  }
+
+  async function onUserChange(next) {
+    if ((next && next.id) === (user && user.id)) { user = next; renderAccount(); return; }
+    clearTimeout(cloud.timer);
+    user = next;
+    if (user) {
+      await cloudLoad();
+      toast(`Ingelogd als ${user.email}. Je kaart wordt in je account bewaard.`);
+    } else {
+      data = normalize(readLS(STORE_KEY));
+      setSync('ok');
+    }
+    renderAll();
+    renderAccount();
+  }
+
+  async function initAuth() {
+    if (!sb) return;
+    try {
+      const { data: s } = await sb.auth.getSession();
+      if (s && s.session) { user = s.session.user; await cloudLoad(); }
+    } catch (e) { console.error(e); }
+    sb.auth.onAuthStateChange((event, session) => {
+      // Geen Supabase-aanroepen rechtstreeks in deze callback (kan blokkeren).
+      setTimeout(() => {
+        if (event === 'PASSWORD_RECOVERY') { user = session && session.user; openAccount('newpass'); return; }
+        onUserChange(session ? session.user : null);
+      }, 0);
+    });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') cloudRefresh(); });
+    window.addEventListener('online', () => { if (user && localStorage.getItem(pendingKey())) cloudSave(); });
+    window.addEventListener('beforeunload', (e) => {
+      if (user && localStorage.getItem(pendingKey()) && navigator.onLine) { cloudSave(); }
+    });
+  }
+
+  function updateAccountButton() {
+    const btn = $('#btn-account');
+    if (!btn) return;
+    const b = $('.badge', btn), label = $('.btn-account-label', btn);
+    if (user) {
+      label.textContent = user.email ? user.email.split('@')[0] : 'Account';
+      b.hidden = false;
+      b.className = 'badge ' + (cloud.state === 'err' ? 'err' : cloud.state === 'busy' ? 'busy' : 'ok');
+      btn.title = cloud.state === 'err' ? 'Opslaan in je account lukte niet. Klik voor details.'
+        : cloud.state === 'busy' ? 'Bezig met opslaan in je account…' : `Ingelogd als ${user.email}. Alles is bewaard.`;
+    } else {
+      label.textContent = 'Inloggen';
+      b.hidden = true;
+      btn.title = 'Inloggen om je kaart op elk toestel te zien';
+    }
+    const sync = $('#acc-sync');
+    if (sync && user) {
+      sync.className = 'acc-sync ' + (cloud.state === 'err' ? 'err' : cloud.state === 'busy' ? 'busy' : '');
+      sync.textContent = cloud.state === 'err' ? 'Opslaan lukte niet (geen internet?). Je wijzigingen staan veilig op dit toestel en worden later doorgestuurd.'
+        : cloud.state === 'busy' ? 'Bezig met opslaan…' : 'Alles is bewaard in je account.';
+    }
+  }
+
+  /* --- Inlogvenster --- */
+  let accMode = 'login';
+  function accMsg(text, good) {
+    const m = $('#acc-msg');
+    m.hidden = !text;
+    m.textContent = text || '';
+    m.classList.toggle('good', !!good);
+  }
+  function renderAccount() {
+    const on = !!sb;
+    $('#acc-off').hidden = on;
+    $('#acc-form').hidden = !on || (!!user && accMode !== 'newpass');
+    $('#acc-in').hidden = !on || !user || accMode === 'newpass';
+    if (user && accMode !== 'newpass') {
+      $('#acc-title').textContent = 'Je account';
+      $('#acc-user').textContent = user.email || '';
+    } else {
+      const M = {
+        login: ['Inloggen', 'Log in en je kaart staat op elk toestel waarop je inlogt.', 'Inloggen'],
+        signup: ['Account maken', 'Kies je e-mailadres en een wachtwoord (minstens 6 tekens).', 'Account maken'],
+        forgot: ['Wachtwoord vergeten', 'Vul je e-mailadres in. Je krijgt een mail met een link om een nieuw wachtwoord te kiezen.', 'Stuur de link'],
+        newpass: ['Nieuw wachtwoord', 'Kies een nieuw wachtwoord (minstens 6 tekens).', 'Bewaar wachtwoord'],
+      }[accMode];
+      $('#acc-title').textContent = M[0];
+      $('#acc-intro').textContent = M[1];
+      $('#acc-submit').textContent = M[2];
+      $('#acc-email-row').hidden = accMode === 'newpass';
+      $('#acc-email').required = accMode !== 'newpass';
+      $('#acc-pass-row').hidden = accMode === 'forgot';
+      $('#acc-pass').required = accMode !== 'forgot';
+      $('#acc-pass').autocomplete = accMode === 'login' ? 'current-password' : 'new-password';
+      $('#acc-to-signup').hidden = accMode !== 'login';
+      $('#acc-to-login').hidden = accMode === 'login' || accMode === 'newpass';
+      $('#acc-to-forgot').hidden = accMode !== 'login';
+    }
+    updateAccountButton();
+  }
+  function openAccount(mode) {
+    accMode = mode || 'login';
+    accMsg('');
+    renderAccount();
+    const d = $('#account');
+    if (!d.open) d.showModal();
+  }
+  function authError(err) {
+    const m = String((err && err.message) || err || '');
+    if (/invalid login credentials/i.test(m)) return 'E-mailadres of wachtwoord klopt niet.';
+    if (/email not confirmed/i.test(m)) return 'Bevestig eerst je e-mailadres via de link in je mailbox.';
+    if (/already registered|already exists/i.test(m)) return 'Er bestaat al een account met dit e-mailadres. Log in.';
+    if (/password/i.test(m) && /(6|short|weak)/i.test(m)) return 'Kies een langer of sterker wachtwoord.';
+    if (/rate limit|too many/i.test(m)) return 'Even te veel pogingen. Probeer het over een paar minuten opnieuw.';
+    if (/fetch|network/i.test(m)) return 'Geen verbinding. Controleer je internet.';
+    return 'Dat lukte niet: ' + m;
+  }
+  async function submitAccount(e) {
+    e.preventDefault();
+    if (!sb) return;
+    const email = $('#acc-email').value.trim(), password = $('#acc-pass').value;
+    const btn = $('#acc-submit');
+    btn.disabled = true;
+    accMsg('');
+    try {
+      if (accMode === 'login') {
+        const { error } = await sb.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        $('#acc-pass').value = '';
+        $('#account').close();
+      } else if (accMode === 'signup') {
+        const { data: r, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: siteUrl() || undefined } });
+        if (error) throw error;
+        $('#acc-pass').value = '';
+        if (r && r.session) $('#account').close();
+        else if (r && r.user && Array.isArray(r.user.identities) && r.user.identities.length === 0) accMsg('Er bestaat al een account met dit e-mailadres. Log in.');
+        else { accMode = 'login'; renderAccount(); accMsg('Bijna klaar! Klik op de link in de mail die we je stuurden en log daarna hier in.', true); }
+      } else if (accMode === 'forgot') {
+        const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: siteUrl() || undefined });
+        if (error) throw error;
+        accMsg('Als er een account met dit adres bestaat, staat er nu een mail in je mailbox.', true);
+      } else if (accMode === 'newpass') {
+        const { error } = await sb.auth.updateUser({ password });
+        if (error) throw error;
+        $('#acc-pass').value = '';
+        accMode = 'login';
+        const { data: s } = await sb.auth.getSession();
+        await onUserChange(s && s.session ? s.session.user : null);
+        $('#account').close();
+        toast('Je nieuwe wachtwoord is bewaard.');
+      }
+    } catch (err) {
+      accMsg(authError(err));
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  function bindAccount() {
+    $('#btn-account').addEventListener('click', () => openAccount('login'));
+    $('#acc-form').addEventListener('submit', submitAccount);
+    $('#acc-to-signup').addEventListener('click', () => { accMode = 'signup'; accMsg(''); renderAccount(); });
+    $('#acc-to-login').addEventListener('click', () => { accMode = 'login'; accMsg(''); renderAccount(); });
+    $('#acc-to-forgot').addEventListener('click', () => { accMode = 'forgot'; accMsg(''); renderAccount(); });
+    $('#acc-sync-now').addEventListener('click', async () => { await syncNow(); toast(cloud.state === 'err' ? 'Synchroniseren lukte niet.' : 'Alles is gesynchroniseerd.'); });
+    $('#acc-logout').addEventListener('click', async () => {
+      if (user && localStorage.getItem(pendingKey()) && !confirm('Niet alles is al in je account bewaard (geen internet?). Toch uitloggen? Die wijzigingen blijven dan op dit toestel staan tot je weer inlogt.')) return;
+      await sb.auth.signOut();
+      $('#account').close();
+      toast('Je bent uitgelogd.');
+    });
+  }
+
   function pruneAirports() {
     const used = new Set(data.flights.flatMap((f) => [f.from, f.to]));
     for (const c of Object.keys(data.airports)) if (!used.has(c)) delete data.airports[c];
@@ -262,16 +536,18 @@
     pruneAirports();
     if (!data.updatedAt) data.updatedAt = new Date().toISOString();
     downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), DATA_FILE);
-    persist(false);
-    toast('reizen.json is gedownload. Upload het op GitHub om je site bij te werken.');
+    if (!user) persist(false);
+    toast('reizen.json is gedownload.');
   }
   function importFile(file) {
     const rd = new FileReader();
     rd.onload = () => {
       try {
-        data = normalize(JSON.parse(rd.result));
+        const next = normalize(JSON.parse(rd.result));
+        if ((hasContent(data)) && !confirm(user ? 'Dit bestand vervangt de kaart in je account. Doorgaan?' : 'Dit bestand vervangt wat nu in deze browser staat. Doorgaan?')) return;
+        data = next;
         commit();
-        toast('Je gegevens zijn geïmporteerd.');
+        toast(user ? 'Geïmporteerd en bewaard in je account.' : 'Je gegevens zijn geïmporteerd.');
       } catch (e) { toast('Dit bestand kan niet gelezen worden. Kies een reizen.json-bestand.'); }
     };
     rd.readAsText(file);
@@ -1247,10 +1523,17 @@
   function bindUI() {
     $$('.tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
     window.addEventListener('hashchange', () => showTab(HASH_TAB[location.hash] || 'countries'));
-    $('#btn-export').addEventListener('click', exportData);
+    bindAccount();
     $('#btn-settings').addEventListener('click', () => {
       $('#set-title').value = data.title || '';
       $('#set-byregion').checked = byRegion();
+      $('#set-reload').hidden = !!user;
+      $('#set-keep-hint').textContent = user
+        ? `Je bent ingelogd als ${user.email}: alles wordt automatisch in je account bewaard en je ziet het op elk toestel waarop je inlogt.`
+        : (sb ? 'Log in (knop rechtsboven) en alles wordt in je account bewaard. Zo zie je je kaart op elk toestel waarop je inlogt. Zonder account blijft alles alleen in deze browser.'
+              : 'Alles wordt bewaard in deze browser. Stel accounts in (zie README) om je kaart op elk toestel te zien.');
+      $('#set-reset-hint').textContent = user ? 'Wist je hele kaart, ook in je account op al je toestellen.' : 'Wist alles in deze browser. Wat op GitHub staat, blijft bestaan.';
+      $('#set-reset').textContent = user ? 'Alles wissen in mijn account' : 'Alles wissen in deze browser';
       $('#settings').showModal();
     });
     $('#btn-stats').addEventListener('click', openStats);
@@ -1373,11 +1656,11 @@
     });
     $('#set-reload').addEventListener('click', reloadFromSite);
     $('#set-reset').addEventListener('click', () => {
-      if (!confirm('Alles wissen in deze browser? Je reizen.json op GitHub blijft gewoon bestaan.')) return;
+      if (!confirm(user ? 'Je hele kaart wissen, ook in je account op al je toestellen? Dit kan niet ongedaan worden.' : 'Alles wissen in deze browser? Je reizen.json op GitHub blijft gewoon bestaan.')) return;
       data = emptyData();
       commit();
       dlg.close();
-      toast('Alles is gewist in deze browser.');
+      toast(user ? 'Je kaart is gewist.' : 'Alles is gewist in deze browser.');
     });
     // Klik naast een venster sluit het
     for (const d of $$('dialog')) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
@@ -2073,8 +2356,10 @@
     initFallbackAirports();
     bindUI();
     showTab(HASH_TAB[location.hash] || 'countries');
-    await loadData();
+    await initAuth();
+    if (!user) await loadData();
     renderAll();
+    renderAccount();
     loadAirports();
     try {
       const [world, us] = await Promise.all([d3.json(WORLD_URL), d3.json(US_URL).catch(() => null)]);

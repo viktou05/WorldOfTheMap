@@ -11,10 +11,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&display=swap">
   <link rel="stylesheet" href="styles.css">
-  <script>
-    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-  </script>
-  <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
 
@@ -40,9 +36,9 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>
         <span class="btn-label">Delen</span>
       </button>
-      <button type="button" class="btn" id="btn-export">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg>
-        <span class="btn-export-label">Exporteer</span>
+      <button type="button" class="btn" id="btn-account" title="Inloggen om je kaart op elk toestel te zien">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
+        <span class="btn-account-label">Inloggen</span>
         <i class="badge" hidden></i>
       </button>
       <button type="button" class="icon-btn" id="btn-settings" aria-label="Instellingen">
@@ -182,6 +178,42 @@
   <div id="tooltip" class="tooltip" hidden></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+  <!-- Account -->
+  <dialog id="account" aria-label="Account">
+    <div class="sheet-head">
+      <h2 id="acc-title">Inloggen</h2>
+      <button type="button" class="icon-btn" onclick="this.closest('dialog').close()" aria-label="Sluiten">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div id="acc-off" hidden>
+        <p class="hint">Accounts zijn nog niet ingesteld voor deze site. Vul de gegevens van je Supabase-project in <code>config.js</code> in (zie README). Tot dan wordt alles in deze browser bewaard.</p>
+      </div>
+
+      <form id="acc-form" class="form" autocomplete="on" hidden>
+        <p class="hint" id="acc-intro">Log in en je kaart staat op elk toestel waarop je inlogt.</p>
+        <div id="acc-email-row"><label for="acc-email">E-mailadres</label><input id="acc-email" class="input" type="email" autocomplete="email" required></div>
+        <div id="acc-pass-row"><label for="acc-pass">Wachtwoord</label><input id="acc-pass" class="input" type="password" autocomplete="current-password" minlength="6" required></div>
+        <p class="acc-msg" id="acc-msg" role="alert" hidden></p>
+        <button class="btn primary block" type="submit" id="acc-submit">Inloggen</button>
+        <div class="acc-links">
+          <button type="button" class="link" id="acc-to-signup">Nog geen account? Maak er een</button>
+          <button type="button" class="link" id="acc-to-login" hidden>Ik heb al een account</button>
+          <button type="button" class="link" id="acc-to-forgot">Wachtwoord vergeten?</button>
+        </div>
+      </form>
+
+      <div id="acc-in" hidden>
+        <p class="hint">Ingelogd als <strong id="acc-user"></strong>.</p>
+        <p class="acc-sync" id="acc-sync"></p>
+        <div class="btn-row">
+          <button type="button" class="btn" id="acc-sync-now">Nu synchroniseren</button>
+          <button type="button" class="btn" id="acc-logout">Uitloggen</button>
+        </div>
+        <p class="hint">Na het uitloggen zie je in deze browser weer de kaart van zonder account.</p>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Instellingen -->
   <dialog id="settings" aria-label="Instellingen">
     <div class="sheet-head">
@@ -197,15 +229,16 @@
       <p class="hint">Aan: de VS, Canada, Australië, Brazilië, China, India en Rusland kleuren per staat of provincie, en zijn gearceerd zolang je maar een deel zag. Uit: het hele land kleurt in zodra je er geweest bent, net als elk ander land.</p>
 
       <h3>Je gegevens bewaren</h3>
-      <p class="hint">Alles wat je invult, wordt meteen bewaard in deze browser. Wil je het op elk toestel zien? Klik op Exporteer en upload het bestand reizen.json op GitHub, in plaats van het oude. Na een halve minuut staat je site bijgewerkt online.</p>
+      <p class="hint" id="set-keep-hint">Log in (knop rechtsboven) en alles wordt in je account bewaard. Zo zie je je kaart op elk toestel waarop je inlogt. Zonder account blijft alles alleen in deze browser.</p>
+      <p class="hint">Een reservekopie nemen of een oud bestand (bv. reizen.json) inladen kan hier:</p>
       <div class="btn-row">
-        <button type="button" class="btn primary" id="set-export">Exporteer reizen.json</button>
+        <button type="button" class="btn" id="set-export">Exporteer reizen.json</button>
         <label class="btn file-btn">Importeer een bestand<input type="file" id="set-import" accept=".json,application/json"></label>
       </div>
       <button type="button" class="btn" id="set-reload">Laad de versie van de website</button>
 
       <h3>Opnieuw beginnen</h3>
-      <p class="hint">Wist alles in deze browser. Wat op GitHub staat, blijft bestaan.</p>
+      <p class="hint" id="set-reset-hint">Wist alles in deze browser. Wat op GitHub staat, blijft bestaan.</p>
       <button type="button" class="btn danger" id="set-reset">Alles wissen in deze browser</button>
     </div>
   </dialog>
@@ -261,6 +294,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
   <script src="data.js"></script>
   <script src="app.js"></script>
 </body>

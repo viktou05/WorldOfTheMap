@@ -470,7 +470,7 @@ dialog.wide .sheet-head { padding: 20px 24px 16px; }
 @media (max-width: 620px) {
   .brand { flex: 1 1 0; }
   .actions .btn-label { display: none; }
-  .actions .btn:has(.btn-label), #btn-export { padding: 8px 10px; }
+  .actions .btn:has(.btn-label), #btn-account { padding: 8px 10px; }
   .actions { gap: 6px; }
   dialog.wide .sheet-head h2 { font-size: 27px; }
   dialog.wide { width: 100%; max-height: calc(100dvh - 12px); }
@@ -481,7 +481,7 @@ dialog.wide .sheet-head { padding: 20px 24px 16px; }
   .ft.name .ft-big { font-size: 22px; }
 }
 @media (max-width: 520px) {
-  .btn-export-label { display: none; }
+  .btn-account-label { display: none; }
   .hero-num { font-size: 76px; }
   .legend { font-size: 12px; }
 }
@@ -491,3 +491,20 @@ dialog.wide .sheet-head { padding: 20px 24px 16px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* Account */
+.btn .badge.ok { background: var(--v1); }
+.btn .badge.busy { background: var(--v3); }
+.btn .badge.err { background: #b3261e; }
+#btn-account .btn-account-label { max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#account .form { display: grid; gap: 12px; padding: 0; border: 0; background: none; }
+.acc-msg { margin: 0; padding: 9px 12px; border-radius: 10px; font-size: 14px; background: #fdecea; color: #8c1d18; }
+.acc-msg.good { background: #e6f4ec; color: #1d5e3a; }
+.acc-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 14px; }
+.acc-links [hidden] { display: none; }
+button.link { padding: 0; border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 14px; text-decoration: underline; cursor: pointer; }
+button.link:hover { color: var(--ink); }
+.acc-sync { margin: 4px 0 8px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.acc-sync::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--v1); flex: none; }
+.acc-sync.busy::before { background: var(--v3); }
+.acc-sync.err::before { background: #b3261e; }

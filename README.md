@@ -21,20 +21,36 @@ De knop **Delen** maakt een overzicht dat iedereen snapt: een afbeelding met je 
 
 1. Maak een gratis account op github.com.
 2. Klik rechtsboven op **+** en dan **New repository**. Geef het een naam (bv. `reisatlas`) en klik **Create repository**.
-3. Klik op **uploading an existing file**, sleep alle bestanden uit deze map erin (index.html, styles.css, app.js, data.js, reizen.json, README.md) en klik **Commit changes**.
+3. Klik op **uploading an existing file**, sleep alle bestanden uit deze map erin (index.html, styles.css, app.js, data.js, config.js, supabase.sql, reizen.json, README.md) en klik **Commit changes**.
 4. Ga naar vercel.com en kies **Sign Up**, dan **Continue with GitHub**.
 5. Klik **Add New…**, dan **Project**, en kies bij je repository **Import**.
 6. Laat alles staan zoals het is (Framework Preset: *Other*, geen build command) en klik **Deploy**.
 7. Na ongeveer een halve minuut krijg je een link zoals `reisatlas.vercel.app`. Dat is je website.
 
-## Je gegevens bewaren
+## Accounts: je kaart op elk toestel
 
-- Alles wat je invult, wordt automatisch bewaard **in de browser** waarin je werkt.
-- Wil je het op elk toestel zien (en voor iedereen met de link)? Klik op **Exporteer**. Je downloadt dan `reizen.json`.
-- Ga op GitHub naar je repository, klik **Add file → Upload files**, sleep `reizen.json` erin en klik **Commit changes**. Het oude bestand wordt vervangen.
-- Vercel zet je site dan automatisch opnieuw online.
-- Let op: het bestand moet exact `reizen.json` heten. Heet het `reizen (1).json`, hernoem het dan eerst.
-- Een oranje bolletje op de Exporteer-knop betekent dat je wijzigingen hebt die nog niet op GitHub staan.
+Met een (gratis) account wordt alles automatisch bewaard en zie je je eigen kaart op elk toestel waarop je inlogt. Zonder account werkt de site zoals vroeger: alles blijft in de browser.
+
+De accounts draaien op [Supabase](https://supabase.com) (gratis database met login). Eenmalig instellen:
+
+1. Maak een gratis account op supabase.com en klik **New project** (kies een regio in Europa, bv. Frankfurt).
+2. Ga naar **SQL Editor → New query**, plak de inhoud van `supabase.sql` en klik **Run**.
+3. Ga naar **Authentication → URL Configuration** en vul bij **Site URL** je Vercel-link in (bv. `https://reisatlas.vercel.app`). Zet diezelfde link ook bij **Redirect URLs**. Zo werken de links in de bevestigings- en wachtwoordmails.
+4. Ga naar **Project Settings → API** (of de knop **Connect**) en kopieer de **Project URL** en de **anon public** (of **publishable**) key.
+5. Vul ze in `config.js` in en zet dat bestand op GitHub. Vercel zet de site vanzelf opnieuw online.
+
+Daarna: klik rechtsboven op **Inloggen → Nog geen account? Maak er een**, bevestig je e-mailadres via de mail en log in. Is je account nog leeg, dan vraagt de site of hij de reizen uit die browser mag overnemen. Een oud `reizen.json` kun je ook inladen via het instellingen-icoon → **Importeer een bestand**.
+
+Goed om te weten:
+
+- De sleutel in `config.js` mag openbaar zijn. De database laat elke gebruiker alleen zijn eigen kaart lezen en wijzigen.
+- Elke wijziging wordt binnen een seconde bewaard. Het bolletje op de accountknop is groen als alles bewaard is, geel tijdens het opslaan en rood als het niet lukte (bv. geen internet). Dan blijven je wijzigingen op dat toestel staan en worden ze later doorgestuurd.
+- Kom je terug naar een tabblad dat al open stond, dan haalt de site automatisch de nieuwste versie op.
+- Wil je niet dat vreemden een account kunnen maken? Zet in Supabase onder **Authentication → Sign In / Providers** de optie **Allow new users to sign up** uit nadat je zelf een account hebt.
+
+## Reservekopie
+
+Via het instellingen-icoon kun je nog altijd **Exporteer reizen.json** (download) en **Importeer een bestand** gebruiken.
 
 ## Zelf aanpassen
 
@@ -44,5 +60,5 @@ De knop **Delen** maakt een overzicht dat iedereen snapt: een afbeelding met je 
 
 ## Goed om te weten
 
-- De site is openbaar: wie de link heeft, ziet je kaart. Je GitHub-repository mag privé staan; Vercel werkt daar ook mee.
+- Zonder account ziet een bezoeker alleen wat in zijn eigen browser staat (of `reizen.json` als dat op GitHub staat). Met een account is je kaart privé. Je GitHub-repository mag privé staan; Vercel werkt daar ook mee.
 - Kaartgegevens komen van Natural Earth (via world-atlas en us-atlas), luchthavens van OpenFlights.
