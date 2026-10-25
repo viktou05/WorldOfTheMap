@@ -10,6 +10,6 @@
    Laat je ze leeg, dan werkt de site zoals vroeger, zonder accounts.
    ===================================================================== */
 window.REISATLAS_CONFIG = {
-  supabaseUrl: '',
-  supabaseAnonKey: '',
+  supabaseUrl: 'https://ljiqrgffvclohnfuasjh.supabase.co',
+  supabaseAnonKey: 'sb_publishable_jQl2ycRvtx7AtXl5g_KD7A_OQCVccmd',
 };
